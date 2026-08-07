@@ -36,6 +36,7 @@ set_target_properties(camd PROPERTIES
     OUTPUT_NAME camd
     VERSION "${PROJECT_VERSION}"
     SOVERSION "${PROJECT_VERSION_MAJOR}"
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
     EXPORT_NAME CAMD)
 
 target_include_directories(camd

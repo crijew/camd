@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: CAMD
+Description: Constrained approximate minimum degree ordering
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lcamd
+Libs.private: -lm
+Cflags: -I${includedir}

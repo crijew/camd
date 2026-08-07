@@ -1,0 +1,54 @@
+name: Sync SuiteSparse CAMD
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: SuiteSparse branch or tag
+        required: false
+        default: dev
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SYNC_BRANCH: automation/sync-suitesparse-camd
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Sync upstream files
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: ./scripts/sync-upstream.sh "${REQUESTED_REF:-dev}"
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+      - name: Publish sync pull request
+        run: |
+          changes=$(git status --porcelain -- UPSTREAM LICENSE include/camd.h include/SuiteSparse_config_version.h src/upstream tests/upstream)
+          if [ -z "$changes" ]; then
+            echo "Already synchronized."
+            exit 0
+          fi
+          source UPSTREAM
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$SYNC_BRANCH"
+          git add UPSTREAM LICENSE include/camd.h include/SuiteSparse_config_version.h src/upstream tests/upstream
+          git commit -m "Sync CAMD from SuiteSparse ${commit:0:12}"
+          git push --force-with-lease origin "HEAD:$SYNC_BRANCH"
+          gh pr view "$SYNC_BRANCH" >/dev/null 2>&1 || gh pr create \
+            --base "${GITHUB_REF_NAME}" \
+            --head "$SYNC_BRANCH" \
+            --title "Sync CAMD from SuiteSparse ${commit:0:12}" \
+            --body "Automated CAMD sync from SuiteSparse commit \`$commit\` ($commit_date)."

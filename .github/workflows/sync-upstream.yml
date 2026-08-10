@@ -47,8 +47,17 @@ jobs:
           git add UPSTREAM LICENSE include/camd.h include/SuiteSparse_config_version.h src/upstream tests/upstream
           git commit -m "Sync CAMD from SuiteSparse ${commit:0:12}"
           git push --force-with-lease origin "HEAD:$SYNC_BRANCH"
-          gh pr view "$SYNC_BRANCH" >/dev/null 2>&1 || gh pr create \
-            --base "${GITHUB_REF_NAME}" \
-            --head "$SYNC_BRANCH" \
-            --title "Sync CAMD from SuiteSparse ${commit:0:12}" \
-            --body "Automated CAMD sync from SuiteSparse commit \`$commit\` ($commit_date)."
+          pr_url=$(gh pr list --state open --head "$SYNC_BRANCH" \
+            --json url --jq '.[0].url')
+          if [ -z "$pr_url" ]; then
+            pr_url=$(gh pr create \
+              --base "${GITHUB_REF_NAME}" \
+              --head "$SYNC_BRANCH" \
+              --title "Sync CAMD from SuiteSparse ${commit:0:12}" \
+              --body "Automated CAMD sync from SuiteSparse commit \`$commit\` ($commit_date).")
+          fi
+          gh pr merge "$pr_url" \
+            --auto \
+            --squash \
+            --delete-branch \
+            --match-head-commit "$(git rev-parse HEAD)"

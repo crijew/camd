@@ -19,8 +19,7 @@ def workflow(name):
 
 
 class SyncWorkflowTests(unittest.TestCase):
-    def test_ci_dispatch(self):
-        self.assertIn("workflow_dispatch", workflow("ci")["on"])
+    def test_ci_permissions(self):
         self.assertEqual(workflow("sync-upstream")["permissions"].get("actions"), "write")
 
     def publish(self, delay=0):
@@ -30,8 +29,9 @@ class SyncWorkflowTests(unittest.TestCase):
         harness = r'''
 SYNC_BRANCH=automation/sync-suitesparse-camd
 GITHUB_REF_NAME=main
+GITHUB_REPOSITORY=example/camd
 remaining=DELAY
-dispatched=false
+approved=false
 source() { commit=abcdef123456; commit_date=2026-09-13; }
 git() {
   case "$1" in
@@ -46,12 +46,16 @@ gh() {
     'pr view')
       if [ "$remaining" -gt 0 ]; then echo old-head; else echo new-head; fi ;;
     'pr edit') ;;
-    'workflow run')
-      [ "$3" = ci.yml ] && [ "$4" = --ref ] && [ "$5" = "$SYNC_BRANCH" ] || return 1
-      dispatched=true
-      echo dispatched ;;
+    'run list')
+      [[ "$*" == *'--commit new-head --event pull_request'* ]] || return 1
+      echo 123 ;;
+    'run view') echo action_required ;;
+    'api --method')
+      [ "$3" = POST ] && [ "$4" = repos/example/camd/actions/runs/123/approve ] || return 1
+      approved=true
+      echo approved ;;
     'pr merge')
-      [ "$dispatched" = true ] || { echo 'CI was not dispatched' >&2; return 1; }
+      [ "$approved" = true ] || { echo 'CI was not approved' >&2; return 1; }
       [ "$remaining" -le 0 ] || { echo 'PR head is stale' >&2; return 1; }
       [[ "$*" == *'--match-head-commit new-head'* ]] || return 1
       echo merged ;;
@@ -62,10 +66,10 @@ gh() {
         return subprocess.run(["bash", "-e", "-c", harness + script],
                               text=True, capture_output=True, timeout=5)
 
-    def test_publish_dispatches_before_merge(self):
+    def test_publish_approves_before_merge(self):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("dispatched\nmerged", result.stdout)
+        self.assertIn("approved\nmerged", result.stdout)
 
     def test_publish_waits_for_pr_head(self):
         result = self.publish(delay=2)
@@ -76,7 +80,7 @@ gh() {
         result = self.publish(delay=20)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Pull request head did not update", result.stderr)
-        self.assertNotIn("dispatched", result.stdout)
+        self.assertNotIn("approved", result.stdout)
         self.assertNotIn("merged", result.stdout)
 
 

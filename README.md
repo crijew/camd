@@ -29,7 +29,9 @@ ctest --test-dir build --output-on-failure
 
 `UPSTREAM` records the exact SuiteSparse commit and CAMD version. The scheduled
 GitHub Actions workflow runs the same sync and test sequence, then opens or
-updates a pull request when upstream changes are detected.
+updates a pull request when upstream changes are detected. It explicitly starts
+the CI workflow on the sync branch and enables automatic merging after all six
+Linux, macOS, and Windows static/shared build checks pass.
 
 ## Provenance and license
 

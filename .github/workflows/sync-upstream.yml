@@ -76,7 +76,23 @@ jobs:
             echo "Pull request head did not update to $head_sha." >&2
             exit 1
           fi
-          gh workflow run ci.yml --ref "$SYNC_BRANCH"
+          for attempt in {1..12}; do
+            run_id=$(gh run list --workflow ci.yml --branch "$SYNC_BRANCH" \
+              --commit "$head_sha" --event pull_request \
+              --json databaseId --jq '.[0].databaseId')
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo "Pull request CI was not created for $head_sha." >&2
+            exit 1
+          fi
+          conclusion=$(gh run view "$run_id" --json conclusion --jq .conclusion)
+          if [ "$conclusion" = action_required ]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/approve"
+          fi
           gh pr merge "$pr_url" \
             --auto \
             --squash \

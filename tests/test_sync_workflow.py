@@ -19,19 +19,20 @@ def workflow(name):
 
 
 class SyncWorkflowTests(unittest.TestCase):
-    def test_ci_dispatch(self):
-        self.assertIn("workflow_dispatch", workflow("ci")["on"])
+    def test_ci_permissions(self):
         self.assertEqual(workflow("sync-upstream")["permissions"].get("actions"), "write")
 
-    def publish(self, delay=0):
+    def publish(self, delay=0, run_delay=0):
         steps = workflow("sync-upstream")["jobs"]["sync"]["steps"]
         script = next(step["run"] for step in steps
                       if step.get("name") == "Publish sync pull request")
         harness = r'''
 SYNC_BRANCH=automation/sync-suitesparse-camd
 GITHUB_REF_NAME=main
+GITHUB_REPOSITORY=example/camd
 remaining=DELAY
-dispatched=false
+run_remaining=RUN_WAIT
+approved=false
 source() { commit=abcdef123456; commit_date=2026-09-13; }
 git() {
   case "$1" in
@@ -39,33 +40,40 @@ git() {
     rev-parse) echo new-head ;;
   esac
 }
-sleep() { remaining=$((remaining - 1)); }
+sleep() {
+  remaining=$((remaining - 1))
+  run_remaining=$((run_remaining - 1))
+}
 gh() {
   case "$1 $2" in
     'pr list') echo https://github.com/example/camd/pull/3 ;;
     'pr view')
       if [ "$remaining" -gt 0 ]; then echo old-head; else echo new-head; fi ;;
     'pr edit') ;;
-    'workflow run')
-      [ "$3" = ci.yml ] && [ "$4" = --ref ] && [ "$5" = "$SYNC_BRANCH" ] || return 1
-      dispatched=true
-      echo dispatched ;;
+    'run list')
+      [[ "$*" == *'--commit new-head --event pull_request'* ]] || return 1
+      if [ "$run_remaining" -le 0 ]; then echo 123; fi ;;
+    'run view') echo action_required ;;
+    'api --method')
+      [ "$3" = POST ] && [ "$4" = repos/example/camd/actions/runs/123/approve ] || return 1
+      approved=true
+      echo approved ;;
     'pr merge')
-      [ "$dispatched" = true ] || { echo 'CI was not dispatched' >&2; return 1; }
+      [ "$approved" = true ] || { echo 'CI was not approved' >&2; return 1; }
       [ "$remaining" -le 0 ] || { echo 'PR head is stale' >&2; return 1; }
       [[ "$*" == *'--match-head-commit new-head'* ]] || return 1
       echo merged ;;
     *) return 1 ;;
   esac
 }
-'''.replace("DELAY", str(delay))
+'''.replace("DELAY", str(delay)).replace("RUN_WAIT", str(run_delay))
         return subprocess.run(["bash", "-e", "-c", harness + script],
                               text=True, capture_output=True, timeout=5)
 
-    def test_publish_dispatches_before_merge(self):
+    def test_publish_approves_before_merge(self):
         result = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("dispatched\nmerged", result.stdout)
+        self.assertIn("approved\nmerged", result.stdout)
 
     def test_publish_waits_for_pr_head(self):
         result = self.publish(delay=2)
@@ -76,7 +84,18 @@ gh() {
         result = self.publish(delay=20)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Pull request head did not update", result.stderr)
-        self.assertNotIn("dispatched", result.stdout)
+        self.assertNotIn("approved", result.stdout)
+        self.assertNotIn("merged", result.stdout)
+
+    def test_publish_waits_for_ci_run(self):
+        result = self.publish(run_delay=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approved\nmerged", result.stdout)
+
+    def test_missing_ci_run_stops_publication(self):
+        result = self.publish(run_delay=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Pull request CI was not created", result.stderr)
         self.assertNotIn("merged", result.stdout)
 
 

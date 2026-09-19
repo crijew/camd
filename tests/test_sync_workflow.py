@@ -22,7 +22,7 @@ class SyncWorkflowTests(unittest.TestCase):
     def test_ci_permissions(self):
         self.assertEqual(workflow("sync-upstream")["permissions"].get("actions"), "write")
 
-    def publish(self, delay=0):
+    def publish(self, delay=0, run_delay=0):
         steps = workflow("sync-upstream")["jobs"]["sync"]["steps"]
         script = next(step["run"] for step in steps
                       if step.get("name") == "Publish sync pull request")
@@ -31,6 +31,7 @@ SYNC_BRANCH=automation/sync-suitesparse-camd
 GITHUB_REF_NAME=main
 GITHUB_REPOSITORY=example/camd
 remaining=DELAY
+run_remaining=RUN_WAIT
 approved=false
 source() { commit=abcdef123456; commit_date=2026-09-13; }
 git() {
@@ -39,7 +40,10 @@ git() {
     rev-parse) echo new-head ;;
   esac
 }
-sleep() { remaining=$((remaining - 1)); }
+sleep() {
+  remaining=$((remaining - 1))
+  run_remaining=$((run_remaining - 1))
+}
 gh() {
   case "$1 $2" in
     'pr list') echo https://github.com/example/camd/pull/3 ;;
@@ -48,7 +52,7 @@ gh() {
     'pr edit') ;;
     'run list')
       [[ "$*" == *'--commit new-head --event pull_request'* ]] || return 1
-      echo 123 ;;
+      if [ "$run_remaining" -le 0 ]; then echo 123; fi ;;
     'run view') echo action_required ;;
     'api --method')
       [ "$3" = POST ] && [ "$4" = repos/example/camd/actions/runs/123/approve ] || return 1
@@ -62,7 +66,7 @@ gh() {
     *) return 1 ;;
   esac
 }
-'''.replace("DELAY", str(delay))
+'''.replace("DELAY", str(delay)).replace("RUN_WAIT", str(run_delay))
         return subprocess.run(["bash", "-e", "-c", harness + script],
                               text=True, capture_output=True, timeout=5)
 
@@ -81,6 +85,17 @@ gh() {
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Pull request head did not update", result.stderr)
         self.assertNotIn("approved", result.stdout)
+        self.assertNotIn("merged", result.stdout)
+
+    def test_publish_waits_for_ci_run(self):
+        result = self.publish(run_delay=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("approved\nmerged", result.stdout)
+
+    def test_missing_ci_run_stops_publication(self):
+        result = self.publish(run_delay=20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Pull request CI was not created", result.stderr)
         self.assertNotIn("merged", result.stdout)
 
 

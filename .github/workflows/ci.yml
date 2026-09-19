@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -14,6 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Test sync workflow
+        if: matrix.os == 'ubuntu-latest' && matrix.shared == 'OFF'
+        run: |
+          python3 -m pip install PyYAML
+          python3 tests/test_sync_workflow.py
       - name: Configure
         run: cmake -S . -B build -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DCMAKE_BUILD_TYPE=Release
       - name: Build

@@ -11,8 +11,13 @@ on:
         default: dev
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
+
+concurrency:
+  group: sync-suitesparse-camd
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -56,8 +61,24 @@ jobs:
               --title "Sync CAMD from SuiteSparse ${commit:0:12}" \
               --body "Automated CAMD sync from SuiteSparse commit \`$commit\` ($commit_date).")
           fi
+          gh pr edit "$pr_url" \
+            --title "Sync CAMD from SuiteSparse ${commit:0:12}" \
+            --body "Automated CAMD sync from SuiteSparse commit \`$commit\` ($commit_date)."
+          head_sha=$(git rev-parse HEAD)
+          for attempt in {1..12}; do
+            pr_head=$(gh pr view "$pr_url" --json headRefOid --jq .headRefOid)
+            if [ "$pr_head" = "$head_sha" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ "$pr_head" != "$head_sha" ]; then
+            echo "Pull request head did not update to $head_sha." >&2
+            exit 1
+          fi
+          gh workflow run ci.yml --ref "$SYNC_BRANCH"
           gh pr merge "$pr_url" \
             --auto \
             --squash \
             --delete-branch \
-            --match-head-commit "$(git rev-parse HEAD)"
+            --match-head-commit "$head_sha"

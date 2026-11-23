@@ -1,5 +1,5 @@
 repository=https://github.com/DrTimothyAldenDavis/SuiteSparse.git
 ref=dev
-commit=0f41a7786b08d3399c6fd6cf7033714bc7f019f3
-commit_date=2026-10-23
+commit=39d0c10cb5a2664b50ce02bbaf7224a7d96a77c8
+commit_date=2026-11-16
 camd_version=3.3.5
